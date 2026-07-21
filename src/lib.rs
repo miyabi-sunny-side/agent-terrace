@@ -1,7 +1,7 @@
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{future::Future, io::Write, pin::Pin, process::Stdio, sync::Arc};
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
@@ -9,7 +9,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::process::Command;
 
 pub type CommandFuture<'a> =
     Pin<Box<dyn Future<Output = Result<CommandOutput, CommandError>> + Send + 'a>>;
@@ -18,6 +17,8 @@ pub type CommandFuture<'a> =
 pub struct CommandSpec {
     pub program: &'static str,
     pub args: Vec<String>,
+    pub stdin: Option<String>,
+    pub env_remove: Vec<&'static str>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -41,10 +42,29 @@ pub struct ProcessRunner;
 impl CommandRunner for ProcessRunner {
     fn run(&self, command: CommandSpec) -> CommandFuture<'_> {
         Box::pin(async move {
-            let output = Command::new(command.program)
-                .args(&command.args)
-                .output()
-                .await?;
+            let output = tokio::task::spawn_blocking(move || {
+                let mut process = std::process::Command::new(command.program);
+                process.args(&command.args);
+                for name in command.env_remove {
+                    process.env_remove(name);
+                }
+                if command.stdin.is_some() {
+                    process.stdin(Stdio::piped());
+                }
+                process.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+                let mut child = process.spawn()?;
+                if let Some(input) = command.stdin {
+                    child
+                        .stdin
+                        .take()
+                        .expect("stdin was configured as piped")
+                        .write_all(input.as_bytes())?;
+                }
+                child.wait_with_output()
+            })
+            .await
+            .map_err(std::io::Error::other)??;
             Ok(CommandOutput {
                 success: output.status.success(),
                 stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -93,6 +113,12 @@ enum ApiError {
     UnknownAgent,
     #[error("the requested pane disappeared before it could be captured")]
     PaneUnavailable,
+    #[error("letter history is unavailable")]
+    LetterHistoryUnavailable,
+    #[error("letter delivery failed")]
+    LetterDeliveryFailed,
+    #[error("invalid letter request")]
+    InvalidLetter,
 }
 
 #[derive(Serialize)]
@@ -107,6 +133,11 @@ impl IntoResponse for ApiError {
             Self::RegistryUnavailable => (StatusCode::BAD_GATEWAY, "registry_unavailable"),
             Self::UnknownAgent => (StatusCode::NOT_FOUND, "unknown_agent"),
             Self::PaneUnavailable => (StatusCode::GONE, "pane_unavailable"),
+            Self::LetterHistoryUnavailable => {
+                (StatusCode::BAD_GATEWAY, "letter_history_unavailable")
+            }
+            Self::LetterDeliveryFailed => (StatusCode::BAD_GATEWAY, "letter_delivery_failed"),
+            Self::InvalidLetter => (StatusCode::BAD_REQUEST, "invalid_letter"),
         };
         let message = self.to_string();
         (status, Json(ErrorResponse { code, message })).into_response()
@@ -117,7 +148,220 @@ pub fn api_router(state: AppState) -> Router {
     Router::new()
         .route("/api/agents", get(list_agents))
         .route("/api/agents/{pane}/screen", get(capture_screen))
+        .route("/api/skills", get(list_skills))
+        .route("/api/letters", get(list_letters).post(send_letter))
         .with_state(state)
+}
+
+const SKILLS: [&str; 2] = ["deliver", "commit"];
+const MAX_BODY_BYTES: usize = 16_384;
+
+#[derive(Debug, Serialize)]
+struct SkillsResponse {
+    skills: [&'static str; 2],
+}
+
+async fn list_skills() -> Json<SkillsResponse> {
+    Json(SkillsResponse { skills: SKILLS })
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LettersQuery {
+    after: Option<u64>,
+    limit: Option<u16>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct MailboxResponse {
+    version: u8,
+    mailbox: String,
+    events: Vec<MailboxEvent>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct MailboxEvent {
+    id: u64,
+    created_at: String,
+    mailbox: String,
+    source_label: String,
+    direction: Direction,
+    body: String,
+    skill: Option<String>,
+    target_name: String,
+    target_pane: String,
+    reply_to: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum Direction {
+    Out,
+    In,
+}
+
+async fn list_letters(
+    State(state): State<AppState>,
+    Query(query): Query<LettersQuery>,
+) -> Result<Json<MailboxResponse>, ApiError> {
+    let limit = query.limit.unwrap_or(500);
+    if !(1..=500).contains(&limit) {
+        return Err(ApiError::InvalidLetter);
+    }
+
+    let mut args = vec!["mailbox-list-v1".into(), "mobile".into()];
+    if let Some(after) = query.after {
+        args.extend(["--after".into(), after.to_string()]);
+    }
+    args.extend(["--limit".into(), limit.to_string()]);
+    let output = state
+        .runner
+        .run(CommandSpec {
+            program: "agent-talk",
+            args,
+            stdin: None,
+            env_remove: vec!["TMUX_PANE"],
+        })
+        .await
+        .map_err(|_| ApiError::LetterHistoryUnavailable)?;
+    if !output.success {
+        return Err(ApiError::LetterHistoryUnavailable);
+    }
+
+    let response: MailboxResponse =
+        serde_json::from_str(&output.stdout).map_err(|_| ApiError::LetterHistoryUnavailable)?;
+    validate_mailbox_response(&response, query.after, u64::from(limit))?;
+    Ok(Json(response))
+}
+
+fn validate_mailbox_response(
+    response: &MailboxResponse,
+    after: Option<u64>,
+    limit: u64,
+) -> Result<(), ApiError> {
+    if response.version != 1
+        || response.mailbox != "mobile"
+        || response.events.len() as u64 > limit
+        || response.events.iter().any(|event| {
+            event.mailbox != "mobile"
+                || !is_pane_id(&event.target_pane)
+                || after.is_some_and(|after| event.id <= after)
+        })
+        || response
+            .events
+            .windows(2)
+            .any(|pair| pair[0].id >= pair[1].id)
+    {
+        return Err(ApiError::LetterHistoryUnavailable);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SendLetterRequest {
+    agent: String,
+    skill: Option<String>,
+    body: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SendLetterResponse {
+    id: u64,
+    status: &'static str,
+}
+
+async fn send_letter(
+    State(state): State<AppState>,
+    Json(request): Json<SendLetterRequest>,
+) -> Result<(StatusCode, Json<SendLetterResponse>), ApiError> {
+    if !is_pane_id(&request.agent)
+        || request.body.trim().is_empty()
+        || request.body.len() > MAX_BODY_BYTES
+    {
+        return Err(ApiError::InvalidLetter);
+    }
+    if let Some(skill) = request.skill.as_deref() {
+        if !is_safe_token(skill) || !SKILLS.contains(&skill) {
+            return Err(ApiError::InvalidLetter);
+        }
+    }
+
+    let agents = load_agents(&state)
+        .await
+        .map_err(|_| ApiError::LetterDeliveryFailed)?;
+    if !agents.iter().any(|agent| agent.pane_id == request.agent) {
+        return Err(ApiError::UnknownAgent);
+    }
+
+    let mut args = vec![
+        "send".into(),
+        request.agent.clone(),
+        "--from".into(),
+        "mobile".into(),
+    ];
+    if let Some(skill) = request.skill {
+        args.extend(["--skill".into(), skill]);
+    }
+    let output = state
+        .runner
+        .run(CommandSpec {
+            program: "agent-talk",
+            args,
+            stdin: Some(request.body),
+            env_remove: vec!["TMUX_PANE"],
+        })
+        .await
+        .map_err(|_| ApiError::LetterDeliveryFailed)?;
+    if !output.success {
+        return Err(ApiError::LetterDeliveryFailed);
+    }
+    let (status, id) = parse_delivery_stdout(&output.stdout, &request.agent)?;
+    Ok((StatusCode::CREATED, Json(SendLetterResponse { id, status })))
+}
+
+fn is_safe_token(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn parse_delivery_stdout(
+    stdout: &str,
+    expected_pane: &str,
+) -> Result<(&'static str, u64), ApiError> {
+    let line = stdout
+        .strip_suffix("\r\n")
+        .or_else(|| stdout.strip_suffix('\n'))
+        .unwrap_or(stdout);
+    if line.contains(['\r', '\n']) {
+        return Err(ApiError::LetterDeliveryFailed);
+    }
+    let (status, rest) = if let Some(rest) = line.strip_prefix("sent -> ") {
+        ("sent", rest)
+    } else if let Some(rest) = line.strip_prefix("queued (busy) -> ") {
+        ("queued", rest)
+    } else {
+        return Err(ApiError::LetterDeliveryFailed);
+    };
+    let (target, id) = rest
+        .rsplit_once(": #")
+        .ok_or(ApiError::LetterDeliveryFailed)?;
+    let target_matches = target == expected_pane
+        || target
+            .strip_suffix(')')
+            .and_then(|target| target.rsplit_once(" ("))
+            .is_some_and(|(_, pane)| pane == expected_pane);
+    if !target_matches || id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(ApiError::LetterDeliveryFailed);
+    }
+    let id = id
+        .parse::<u64>()
+        .map_err(|_| ApiError::LetterDeliveryFailed)?;
+    Ok((status, id))
 }
 
 async fn list_agents(State(state): State<AppState>) -> Result<Json<AgentsResponse>, ApiError> {
@@ -139,6 +383,8 @@ async fn capture_screen(
         .run(CommandSpec {
             program: "tmux",
             args: vec!["capture-pane".into(), "-pet".into(), pane.clone()],
+            stdin: None,
+            env_remove: vec![],
         })
         .await
         .map_err(|_| ApiError::PaneUnavailable)?;
@@ -159,6 +405,8 @@ async fn load_agents(state: &AppState) -> Result<Vec<Agent>, ApiError> {
         .run(CommandSpec {
             program: "agent-talk",
             args: vec!["who".into()],
+            stdin: None,
+            env_remove: vec![],
         })
         .await
         .map_err(|_| ApiError::RegistryUnavailable)?;

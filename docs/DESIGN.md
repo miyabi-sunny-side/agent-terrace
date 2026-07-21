@@ -46,9 +46,20 @@ preference and prioritizes e-paper contrast. The app has no theme toggle.
 - **Agent row:** Name, state, tmux location, and abbreviated working directory.
   The complete path remains available as a title. The selected row has a 3px
   accent edge; status always includes text and a small square marker.
+- **Detail tabs:** Screen and Letters are peer views under the selected agent.
+  The active tab is reflected in the URL hash. Screen polling stops while
+  Letters is active, and Letters polling stops when its view is unmounted.
 - **Screen viewer:** Read-only captured terminal output in a monospace reading
   surface. It scrolls normally on mobile, preserves whitespace, and labels the
   refresh cadence. It never exposes terminal input controls.
+- **Letter shelf:** A chronological stack of outgoing instructions and incoming
+  replies. Direction, timestamp, skill, and event ID remain visible without
+  making the timeline resemble a chat application. Body text preserves
+  whitespace and is always rendered as plain text.
+- **Letter composer:** A sticky form at the bottom of Letters only. Skill is a
+  separate menu, not a command prefix in the textarea. Byte count, disabled
+  sending state, delivery result, and errors remain close to the submit action;
+  a failed delivery never clears the body.
 - **Lookout header:** A compact sticky bar with the terrace wordmark and a live
   registry count. It contains no decorative iconography.
 
@@ -56,6 +67,8 @@ preference and prioritizes e-paper contrast. The app has no theme toggle.
 
 - Keep terminal output visually dominant once an agent is selected.
 - Never use agent state colors for buttons, links, or decoration.
-- Never display a composer, keyboard affordance, or command input in Phase 1.
+- Keep the Screen view strictly read-only. The only keyboard affordance is the
+  structured composer inside Letters; never add terminal input or `send-keys`
+  controls.
 - Motion is limited to a short opacity reveal and the loading indicator; Washi
   disables the reveal under reduced-motion and light-theme preferences.

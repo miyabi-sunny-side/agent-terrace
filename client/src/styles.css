@@ -382,6 +382,43 @@ svg {
   background: var(--secondary);
 }
 
+.view-tabs {
+  display: flex;
+  flex: 0 0 43px;
+  gap: 4px;
+  align-items: end;
+  padding: 6px 12px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+
+.view-tabs button {
+  align-self: stretch;
+  min-width: 84px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  background: transparent;
+  cursor: pointer;
+}
+
+.view-tabs button:hover,
+.view-tabs button.active {
+  color: var(--on-surface);
+  border-bottom-color: var(--accent);
+}
+
+.view-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
 .terminal {
   flex: 1;
   min-height: 0;
@@ -429,6 +466,298 @@ svg {
   border-radius: 6px;
   color: inherit;
   background: transparent;
+}
+
+.letters-view {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  color: var(--on-surface);
+  background:
+    linear-gradient(90deg, transparent 0 31px, rgba(241, 154, 105, 0.04) 32px, transparent 33px) 0
+      0 / 64px 64px,
+    var(--surface);
+}
+
+.letters-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 18px 12px 28px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.letter-list {
+  display: grid;
+  max-width: 760px;
+  gap: 12px;
+  padding: 0;
+  margin: 0 auto;
+  list-style: none;
+}
+
+.letter-card {
+  position: relative;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 3px 10px 10px 3px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+.letter-card.incoming {
+  border-left-color: var(--secondary);
+  border-radius: 3px 10px 10px 3px;
+  background: color-mix(in srgb, var(--secondary-subtle) 45%, var(--surface-raised));
+}
+
+.letter-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+
+.letter-direction {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.incoming .letter-direction {
+  color: var(--secondary);
+}
+
+.letter-card p {
+  margin-top: 10px;
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.skill-chip,
+.letter-id {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+}
+
+.skill-chip {
+  display: inline-block;
+  margin-top: 9px;
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.letter-id {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+}
+
+.letters-empty,
+.letter-error {
+  display: flex;
+  max-width: 520px;
+  min-height: 240px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 auto;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+.letters-empty {
+  flex-direction: column;
+}
+
+.letters-empty strong {
+  color: var(--on-surface);
+  font-weight: 600;
+}
+
+.empty-rule {
+  width: 48px;
+  height: 2px;
+  margin-bottom: 8px;
+  background: var(--accent);
+}
+
+.letter-error {
+  min-height: auto;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  color: var(--danger);
+  background: var(--danger-subtle);
+}
+
+.letter-error button {
+  padding: 5px 8px;
+  border: 1px solid currentcolor;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+}
+
+.composer {
+  position: sticky;
+  z-index: 4;
+  bottom: 0;
+  display: grid;
+  gap: 8px;
+  padding: 12px max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-raised) 96%, transparent);
+  box-shadow: 0 -16px 30px rgba(0, 0, 0, 0.14);
+  backdrop-filter: blur(12px);
+}
+
+.composer > label {
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.composer textarea {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--on-surface);
+  font: 14px/1.5 inherit;
+  background: var(--terminal);
+}
+
+.composer textarea:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-subtle);
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-button,
+.send-button,
+.skill-menu button {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--on-surface);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.skill-button,
+.send-button {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.skill-button svg,
+.send-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.skill-button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.body-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+}
+
+.body-count.over-limit {
+  color: var(--danger);
+}
+
+.send-button {
+  border-color: var(--accent);
+  color: #20130d;
+  font-weight: 700;
+  background: var(--accent);
+}
+
+.send-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.skill-menu {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.skill-menu > span {
+  margin-right: 4px;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+.skill-menu button {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.skill-menu button.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.composer-message {
+  padding: 7px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.composer-message.error {
+  color: var(--danger);
+  background: var(--danger-subtle);
+}
+
+.composer-message.success {
+  color: var(--secondary);
+  background: var(--secondary-subtle);
 }
 
 .unselected {

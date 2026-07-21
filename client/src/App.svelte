@@ -3,12 +3,14 @@
 
   import { fetchAgents, fetchScreen } from "./api.js";
   import { parseAnsi } from "./ansi.js";
+  import LettersView from "./LettersView.svelte";
 
   const SCREEN_INTERVAL = 1500;
   const REGISTRY_INTERVAL = 5000;
 
   let agents = $state([]);
   let selectedPane = $state(null);
+  let activeView = $state("screen");
   let screen = $state("");
   let registryLoading = $state(true);
   let screenLoading = $state(false);
@@ -54,33 +56,64 @@
 
   function selectAgent(agent, updateHash = true) {
     selectedPane = agent.pane_id;
+    activeView = "screen";
     screen = "";
     screenError = "";
     screenLoading = true;
-    if (updateHash) history.pushState(null, "", `#agent=${encodeURIComponent(agent.pane_id)}`);
+    if (updateHash) updateLocation();
   }
 
   function closeAgent(updateHash = true) {
     selectedPane = null;
+    activeView = "screen";
     screen = "";
     screenError = "";
     if (updateHash) history.pushState(null, "", location.pathname + location.search);
   }
 
   function syncHash() {
-    const match = location.hash.match(/^#agent=(.+)$/);
-    if (!match) {
+    const params = new URLSearchParams(location.hash.slice(1));
+    const pane = params.get("agent");
+    if (!pane) {
       if (selectedPane) closeAgent(false);
       return;
     }
-    const pane = decodeURIComponent(match[1]);
     const agent = agents.find((item) => item.pane_id === pane);
-    if (agent && selectedPane !== pane) selectAgent(agent, false);
+    if (agent) {
+      if (selectedPane !== pane) selectAgent(agent, false);
+      activeView = params.get("view") === "letters" ? "letters" : "screen";
+    }
+  }
+
+  function updateLocation() {
+    if (!selectedPane) return;
+    const params = new URLSearchParams({ agent: selectedPane, view: activeView });
+    history.pushState(null, "", `#${params}`);
+  }
+
+  function selectView(view) {
+    activeView = view;
+    updateLocation();
+  }
+
+  function handleTabKey(event) {
+    const views = ["screen", "letters"];
+    const current = views.indexOf(activeView);
+    let next;
+    if (event.key === "ArrowRight") next = views[(current + 1) % views.length];
+    if (event.key === "ArrowLeft") next = views[(current - 1 + views.length) % views.length];
+    if (event.key === "Home") next = views[0];
+    if (event.key === "End") next = views.at(-1);
+    if (!next) return;
+    event.preventDefault();
+    selectView(next);
+    document.getElementById(`tab-${next}`)?.focus();
   }
 
   $effect(() => {
     const pane = selectedPane;
-    if (!pane) return;
+    const view = activeView;
+    if (!pane || view !== "screen") return;
     refreshScreen(pane);
     const timer = window.setInterval(() => refreshScreen(pane), SCREEN_INTERVAL);
     return () => window.clearInterval(timer);
@@ -90,9 +123,11 @@
     refreshAgents().then(syncHash);
     const registryTimer = window.setInterval(refreshAgents, REGISTRY_INTERVAL);
     window.addEventListener("popstate", syncHash);
+    window.addEventListener("hashchange", syncHash);
     return () => {
       window.clearInterval(registryTimer);
       window.removeEventListener("popstate", syncHash);
+      window.removeEventListener("hashchange", syncHash);
     };
   });
 </script>
@@ -161,38 +196,69 @@
       {/if}
     </aside>
 
-    <section class="screen-pane" aria-label="読み取り専用 agent 画面">
+    <section class="screen-pane" aria-label={activeView === "letters" ? "agent への手紙" : "読み取り専用 agent 画面"}>
       {#if selectedAgent}
         <div class="screen-heading">
           <button class="back-button" onclick={() => closeAgent()} aria-label="agent 一覧に戻る">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
           </button>
           <div class="screen-title">
-            <span class="section-index">02 / READ ONLY</span>
+            <span class="section-index">02 / {activeView === "letters" ? "LETTER SHELF" : "READ ONLY"}</span>
             <h2>{selectedAgent.name}<span>{selectedAgent.pane_id}</span></h2>
           </div>
           <div class="capture-meta">
             <span class="live-dot"></span>
-            {lastCapturedAt ? "1.5s refresh" : "connecting"}
+            {activeView === "letters" ? "2s refresh" : lastCapturedAt ? "1.5s refresh" : "connecting"}
           </div>
         </div>
 
-        {#if screenError}
-          <div class="screen-error" role="alert">
-            <span>{screenError}</span>
-            <button onclick={() => refreshScreen(selectedAgent.pane_id)}>再試行</button>
+        <div class="view-tabs" role="tablist" aria-label="agent detail view">
+          <button
+            id="tab-screen"
+            role="tab"
+            aria-selected={activeView === "screen"}
+            aria-controls="panel-screen"
+            tabindex={activeView === "screen" ? 0 : -1}
+            class:active={activeView === "screen"}
+            onclick={() => selectView("screen")}
+            onkeydown={handleTabKey}>Screen</button
+          >
+          <button
+            id="tab-letters"
+            role="tab"
+            aria-selected={activeView === "letters"}
+            aria-controls="panel-letters"
+            tabindex={activeView === "letters" ? 0 : -1}
+            class:active={activeView === "letters"}
+            onclick={() => selectView("letters")}
+            onkeydown={handleTabKey}>Letters</button
+          >
+        </div>
+
+        {#if activeView === "screen"}
+          <div class="view-panel" id="panel-screen" role="tabpanel" aria-labelledby="tab-screen">
+            {#if screenError}
+              <div class="screen-error" role="alert">
+                <span>{screenError}</span>
+                <button onclick={() => refreshScreen(selectedAgent.pane_id)}>再試行</button>
+              </div>
+            {/if}
+
+            <div class="terminal" aria-live="polite" aria-busy={screenLoading}>
+              {#if screenLoading && !screen}
+                <div class="terminal-empty"><span class="loader"></span>pane を撮影中</div>
+              {:else if !screen}
+                <div class="terminal-empty">pane に表示内容がありません。</div>
+              {:else}
+                <pre>{#each screenLines as line}{#each line as segment}<span class={segment.className} style={segment.style}>{segment.text}</span>{/each}{"\n"}{/each}</pre>
+              {/if}
+            </div>
+          </div>
+        {:else}
+          <div class="view-panel" id="panel-letters" role="tabpanel" aria-labelledby="tab-letters">
+            <LettersView agent={selectedAgent} />
           </div>
         {/if}
-
-        <div class="terminal" aria-live="polite" aria-busy={screenLoading}>
-          {#if screenLoading && !screen}
-            <div class="terminal-empty"><span class="loader"></span>pane を撮影中</div>
-          {:else if !screen}
-            <div class="terminal-empty">pane に表示内容がありません。</div>
-          {:else}
-            <pre>{#each screenLines as line}{#each line as segment}<span class={segment.className} style={segment.style}>{segment.text}</span>{/each}{"\n"}{/each}</pre>
-          {/if}
-        </div>
       {:else}
         <div class="unselected">
           <span class="section-index">02 / LOOKOUT</span>

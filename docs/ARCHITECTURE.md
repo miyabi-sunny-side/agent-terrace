@@ -3,9 +3,9 @@
 ## 目的と境界
 
 agent terrace は、tailnet 内のスマートフォンから tmux 上で動く coding agent
-を流し見し、将来は agent-talk 経由で作業指示を届けるための Web
-アプリケーションです。ターミナルクライアントではなく、既存システムの
-読み取り専用ビューと薄い agent-talk クライアントとして振る舞います。
+を流し見し、agent-talk 経由で作業指示を届けるための Web アプリケーション
+です。ターミナルクライアントではなく、既存システムの読み取り専用 Screen
+viewer と薄い agent-talk Letters クライアントとして振る舞います。
 
 ```text
 [Svelte PWA]
@@ -14,7 +14,8 @@ agent terrace は、tailnet 内のスマートフォンから tmux 上で動く 
 [Rust / axum server]
       ├── agent registry: agent-talk who
       ├── screen:         tmux capture-pane -pet <pane>
-      └── future letters: agent-talk journal / send
+      ├── letters:        agent-talk mailbox-list-v1 mobile
+      └── delivery:       agent-talk send <pane> --from mobile
 ```
 
 ## 画面読み取り
@@ -28,28 +29,44 @@ agent terrace は、tailnet 内のスマートフォンから tmux 上で動く 
 - ANSI SGR はフロントエンドで安全な表示データへ変換します。OSC、カーソル
   移動などの非 SGR 制御列は実行も再現もせず除去します。
 
-## 将来の送信機能の設計制約
+## Letters の取得と送信
 
 端末へ任意の文字列を打ち込める API は作りません。`send-keys` の所有者は
-今後も agent-talkd だけです。
+agent-talkd だけです。
 
-将来の送信 API は `{agent, skill, body}` だけを受け付け、次を守ります。
+送信 API は `{agent, skill, body}` だけを受け付け、次を守ります。
 
 1. `agent` は `agent-talk who` の登録情報と照合する。
-2. `skill` は agent terrace 側の静的 allowlist でも検証する。
+2. `skill` は agent terrace 側の静的 allowlist（`deliver`、`commit`）でも
+   検証する。
 3. 本文とは分離した `--skill` と、外部送信元ラベルを付けて
    `agent-talk send` を呼ぶ。
-4. 本文は stdin から agent-talkd の journal だけへ渡し、tmux の引数や
-   bell へ混入させない。
+4. 空白だけの本文を拒否し、UTF-8 で 16 KiB までに制限する。
+5. 本文は stdin から agent-talkd の mailbox だけへ渡し、コマンド引数や
+   tmux の bell へ混入させない。
 
-agent-talkd 側の `send-v2`、外部送信元 allowlist、skill allowlist、宛先別
-syntax は実装・検証済みの前提です。agent terrace 側の allowlist は
-defense in depth として維持します。
+履歴 API は `agent-talk mailbox-list-v1 mobile` の version 1 schema だけを
+受理します。`GET /api/letters` は初回に最大 500 件を取得し、その後は最後に
+見た global event ID を `after` に渡します。フロントエンドは mailbox 全体の
+event を統合してから、選択中 agent の `target_pane` へ絞り込みます。Letters
+tab が mount されている間だけ 2 秒ごとに差分を取得し、tab を離れると timer
+を停止します。
+
+agent-talkd v0.4.0（commit `91e1348`）以降の外部送信元 allowlist、skill
+allowlist、宛先別 syntax、mailbox 一覧・返信契約をデプロイ前提とします。
+agent terrace 側の allowlist と schema 検証は defense in depth として維持
+します。
+
+agent terrace server が tmux pane から起動されて親の `TMUX_PANE` を継承
+していても、`mailbox-list-v1` と `send` の子プロセスからはこの環境変数を
+明示的に除去します。agent-talk に external caller として認識させ、pane
+agent の identity と `mobile` mailbox の identity が混ざるのを防ぎます。
 
 ## セキュリティ境界
 
 - サーバーは既定で localhost のみ listen し、Tailscale Serve で tailnet
   内へ HTTPS 公開します。
+- ブラウザー API は same-origin とし、CORS を有効にしません。
 - インターネットへの直接公開や Cloudflare 経由の公開は採用しません。
 - デバイス認証は tailnet 参加に委ね、アプリ内認証は作りません。端末ごとの
   制限が必要になった場合は Tailscale ACL で行います。
@@ -60,8 +77,8 @@ defense in depth として維持します。
 
 - `/model` など、ターミナル固有の対話 UI を Web に移植しません。
 - ターミナル出力をインターセプトして意味解析しません。
-- agent-talk journal に agent 出力の複製を保存しません。journal は
-  agent 間メッセージの置き場として小さく保ちます。
+- agent-talk mailbox に agent の terminal 出力を複製しません。mailbox は
+  agent 間と外部クライアントのメッセージ置き場として小さく保ちます。
 - 将来、構造化された会話が必要になった場合は Claude Code の
   `~/.claude/projects/**/*.jsonl` または Codex の `~/.codex/sessions/` を
   読み取り専用で参照します。
