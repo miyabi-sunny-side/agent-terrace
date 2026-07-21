@@ -1012,15 +1012,13 @@ svg {
 
   .detail-open .screen-pane {
     display: flex;
-    min-height: calc(100dvh - 65px - env(safe-area-inset-top));
+    height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    min-height: 0;
+    overflow: hidden;
   }
 
   .detail-open .lookout-header {
     display: none;
-  }
-
-  .detail-open .screen-pane {
-    min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   }
 
   .letter-dock.expanded .letter-dock-panel {
