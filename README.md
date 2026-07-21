@@ -112,3 +112,8 @@ Phase 1 の Screen viewer と Phase 2 の Letters viewer / composer を実装済
 です。恒久的な設計判断は [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)、
 デプロイ前提と今後の機能は [`docs/ROADMAP.md`](docs/ROADMAP.md) を参照して
 ください。
+
+agent を選ぶと、Screen / Letters のどちらにも画面右下の「手紙」が表示されます。
+Screen を読みながら「手紙」を開いて指示を書けます。開閉や view の切り替えでは
+下書きと skill を保持し、別の agent を選ぶとリセットします。Letters は送受信履歴を
+確認する timeline です。

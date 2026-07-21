@@ -3,6 +3,7 @@
 
   import { fetchAgents, fetchScreen } from "./api.js";
   import { parseAnsi } from "./ansi.js";
+  import LetterComposer from "./LetterComposer.svelte";
   import LettersView from "./LettersView.svelte";
 
   const SCREEN_INTERVAL = 1500;
@@ -17,6 +18,7 @@
   let registryError = $state("");
   let screenError = $state("");
   let lastCapturedAt = $state(null);
+  let lettersRefreshToken = $state(0);
 
   let selectedAgent = $derived(agents.find((agent) => agent.pane_id === selectedPane));
   let screenLines = $derived(parseAnsi(screen));
@@ -55,6 +57,7 @@
   }
 
   function selectAgent(agent, updateHash = true) {
+    if (selectedPane !== agent.pane_id) lettersRefreshToken = 0;
     selectedPane = agent.pane_id;
     activeView = "screen";
     screen = "";
@@ -256,9 +259,13 @@
           </div>
         {:else}
           <div class="view-panel" id="panel-letters" role="tabpanel" aria-labelledby="tab-letters">
-            <LettersView agent={selectedAgent} />
+            <LettersView agent={selectedAgent} refreshToken={lettersRefreshToken} />
           </div>
         {/if}
+
+        {#key selectedPane}
+          <LetterComposer agent={selectedAgent} onSent={() => (lettersRefreshToken += 1)} />
+        {/key}
       {:else}
         <div class="unselected">
           <span class="section-index">02 / LOOKOUT</span>

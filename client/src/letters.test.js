@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { bodyBytes, eventsForPane, latestEventId, MAX_EVENTS, mergeEvents } from "./letters.js";
+import {
+  bodyBytes,
+  createRefreshQueue,
+  eventsForPane,
+  latestEventId,
+  MAX_EVENTS,
+  mergeEvents,
+} from "./letters.js";
 
 const event = (id, pane = "%1") => ({ id, target_pane: pane, body: `body-${id}` });
 
@@ -29,5 +36,21 @@ describe("letter timeline helpers", () => {
     const merged = mergeEvents([], events);
     expect(merged).toHaveLength(MAX_EVENTS);
     expect(merged[0].id).toBe(2);
+  });
+
+  it("runs one forced refresh after an in-flight poll", async () => {
+    let releaseFirst;
+    let calls = 0;
+    const refresh = createRefreshQueue(async () => {
+      calls += 1;
+      if (calls === 1) await new Promise((resolve) => (releaseFirst = resolve));
+    });
+
+    const polling = refresh();
+    const forced = refresh(true);
+    expect(calls).toBe(1);
+    releaseFirst();
+    await Promise.all([polling, forced]);
+    expect(calls).toBe(2);
   });
 });

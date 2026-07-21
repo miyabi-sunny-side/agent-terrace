@@ -18,3 +18,25 @@ export function eventsForPane(events, paneId) {
 export function latestEventId(events) {
   return events.length ? events.at(-1).id : null;
 }
+
+export function createRefreshQueue(run) {
+  let active = null;
+  let queued = false;
+
+  return function refresh(force = false) {
+    if (active) {
+      if (force) queued = true;
+      return active;
+    }
+
+    active = (async () => {
+      do {
+        queued = false;
+        await run();
+      } while (queued);
+    })().finally(() => {
+      active = null;
+    });
+    return active;
+  };
+}

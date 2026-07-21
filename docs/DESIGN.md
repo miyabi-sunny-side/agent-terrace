@@ -55,11 +55,17 @@ preference and prioritizes e-paper contrast. The app has no theme toggle.
 - **Letter shelf:** A chronological stack of outgoing instructions and incoming
   replies. Direction, timestamp, skill, and event ID remain visible without
   making the timeline resemble a chat application. Body text preserves
-  whitespace and is always rendered as plain text.
-- **Letter composer:** A sticky form at the bottom of Letters only. Skill is a
-  separate menu, not a command prefix in the textarea. Byte count, disabled
-  sending state, delivery result, and errors remain close to the submit action;
-  a failed delivery never clears the body.
+  whitespace and is always rendered as plain text. Letters is a timeline-only
+  view; it does not own the composer.
+- **Letter dock:** A shared footer under both Screen and Letters. Its collapsed
+  state shows only the `手紙` launcher at the lower right. Activating the
+  launcher reveals the composer upward without changing the active view, so
+  terminal output can remain visible while an instruction is drafted. Closing
+  the dock or switching Screen / Letters preserves the draft and selected
+  skill; selecting a different agent resets both. Skill is a separate menu,
+  not a command prefix in the textarea. Byte count, disabled sending state,
+  delivery result, and errors remain close to the submit action; a failed
+  delivery never clears the body.
 - **Lookout header:** A compact sticky bar with the terrace wordmark and a live
   registry count. It contains no decorative iconography.
 
@@ -68,7 +74,11 @@ preference and prioritizes e-paper contrast. The app has no theme toggle.
 - Keep terminal output visually dominant once an agent is selected.
 - Never use agent state colors for buttons, links, or decoration.
 - Keep the Screen view strictly read-only. The only keyboard affordance is the
-  structured composer inside Letters; never add terminal input or `send-keys`
-  controls.
-- Motion is limited to a short opacity reveal and the loading indicator; Washi
-  disables the reveal under reduced-motion and light-theme preferences.
+  structured letter dock shared by both detail views; never add terminal input
+  or `send-keys` controls.
+- The launcher exposes expansion state and the dock panel relationship to
+  assistive technology. The close control and Escape collapse the dock and
+  return focus to the launcher. Skill selection supports keyboard navigation.
+- Motion is limited to the short upward dock reveal, its chevron, and loading
+  indicators. The dock transitions are disabled when reduced motion is
+  requested.
