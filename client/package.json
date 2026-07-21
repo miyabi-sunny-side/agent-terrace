@@ -1,0 +1,23 @@
+{
+  "name": "agent-terrace-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "test": "vitest run",
+    "fmt": "oxfmt --write .",
+    "fmt:check": "oxfmt --check .",
+    "lint": "oxlint .",
+    "check": "vite build"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.0.0",
+    "oxfmt": "^0.41.0",
+    "oxlint": "^1.56.0",
+    "svelte": "^5.46.4",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.0"
+  }
+}
