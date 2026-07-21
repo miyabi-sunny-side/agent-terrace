@@ -2,14 +2,15 @@
 
 ## 目的と境界
 
-agent terrace は、tailnet 内のスマートフォンから tmux 上で動く coding agent
-を流し見し、agent-talk 経由で作業指示を届けるための Web アプリケーション
-です。ターミナルクライアントではなく、既存システムの読み取り専用 Screen
-viewer と薄い agent-talk Letters クライアントとして振る舞います。
+agent terrace は、信頼できる LAN または tailnet 内のスマートフォンから tmux
+上で動く coding agent を流し見し、agent-talk 経由で作業指示を届けるための
+Web アプリケーションです。ターミナルクライアントではなく、既存システムの
+読み取り専用 Screen viewer と薄い agent-talk Letters クライアントとして
+振る舞います。
 
 ```text
 [Svelte PWA]
-      │ HTTPS (Tailscale Serve / MagicDNS)
+      │ HTTP (trusted LAN) / HTTPS (Tailscale Serve)
       ▼
 [Rust / axum server]
       ├── agent registry: agent-talk who
@@ -64,14 +65,17 @@ agent の identity と `mobile` mailbox の identity が混ざるのを防ぎま
 
 ## セキュリティ境界
 
-- サーバーは既定で localhost のみ listen し、Tailscale Serve で tailnet
-  内へ HTTPS 公開します。
+- サーバーは既定で localhost のみ listen します。信頼できる LAN へ公開する
+  運用では `0.0.0.0:5002` を listen し、LAN 側の firewall 境界を使います。
+- HTTPS または tailnet 越しの接続が必要な場合は、localhost で listen して
+  Tailscale Serve を使います。
 - ブラウザー API は same-origin とし、CORS を有効にしません。
 - インターネットへの直接公開や Cloudflare 経由の公開は採用しません。
-- デバイス認証は tailnet 参加に委ね、アプリ内認証は作りません。端末ごとの
-  制限が必要になった場合は Tailscale ACL で行います。
-- 指示本文の検閲フィルターは作りません。公開境界は Tailscale、端末入力の
-  構造的な防御は agent-talkd に一本化します。
+- アプリ内認証は作りません。LAN 公開時は同じ LAN にいる利用者を信頼し、
+  tailnet 公開時はデバイス認証を tailnet 参加に委ねます。端末ごとの制限が
+  必要になった場合は Tailscale ACL で行います。
+- 指示本文の検閲フィルターは作りません。公開境界は LAN firewall または
+  Tailscale、端末入力の構造的な防御は agent-talkd に一本化します。
 
 ## 非目標
 
@@ -79,9 +83,7 @@ agent の identity と `mobile` mailbox の identity が混ざるのを防ぎま
 - ターミナル出力をインターセプトして意味解析しません。
 - agent-talk mailbox に agent の terminal 出力を複製しません。mailbox は
   agent 間と外部クライアントのメッセージ置き場として小さく保ちます。
-- 将来、構造化された会話が必要になった場合は Claude Code の
-  `~/.claude/projects/**/*.jsonl` または Codex の `~/.codex/sessions/` を
-  読み取り専用で参照します。
+- coding agent の session log viewer は現在のスコープに含めません。
 
 ## 技術とリポジトリの責務
 
