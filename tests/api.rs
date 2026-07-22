@@ -1,6 +1,11 @@
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    fs,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use agent_terrace::{
@@ -41,6 +46,36 @@ fn output(success: bool, stdout: &str) -> CommandOutput {
 }
 
 const WHO: &str = "claude idle agent-terrace:1.0 (%38) /home/miyabi/a project\n";
+
+struct SkillFixture {
+    home: PathBuf,
+}
+
+static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
+
+impl SkillFixture {
+    fn new() -> Self {
+        let home = std::env::temp_dir().join(format!(
+            "agent-terrace-skills-{}-{}",
+            std::process::id(),
+            NEXT_FIXTURE_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&home).unwrap();
+        Self { home }
+    }
+
+    fn add(&self, relative: impl AsRef<Path>) {
+        let directory = self.home.join(relative);
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("SKILL.md"), "---\nname: fixture\n---\n").unwrap();
+    }
+}
+
+impl Drop for SkillFixture {
+    fn drop(&mut self) {
+        fs::remove_dir_all(&self.home).unwrap();
+    }
+}
 
 async fn response_json(response: axum::response::Response) -> Value {
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -209,18 +244,98 @@ fn json_request(method: &str, uri: &str, body: Value) -> Request<Body> {
 }
 
 #[tokio::test]
-async fn lists_the_static_skill_allowlist() {
-    let app = api_router(AppState::new(Arc::new(FixtureRunner::new(vec![]))));
+async fn lists_installed_skills_for_the_registered_agent() {
+    let fixture = SkillFixture::new();
+    fixture.add(".claude/skills/deliver");
+    fixture.add(".claude/skills/bump-tag");
+    fs::create_dir_all(fixture.home.join(".claude/skills/not-a-skill")).unwrap();
+    let runner = Arc::new(FixtureRunner::new(vec![output(true, WHO)]));
+    let app = api_router(AppState::new(runner.clone()).with_home_dir(&fixture.home));
     let response = app
-        .oneshot(Request::get("/api/skills").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/api/agents/%2538/skills")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
     assert_eq!(response.status(), 200);
     assert_eq!(
         response_json(response).await,
-        json!({"skills": ["deliver", "commit"]})
+        json!({"skills": ["bump-tag", "deliver"]})
     );
+    assert_eq!(runner.calls.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn merges_codex_common_and_system_skills_without_duplicates() {
+    let fixture = SkillFixture::new();
+    fixture.add(".agents/skills/bump-tag");
+    fixture.add(".agents/skills/skill-creator");
+    fixture.add(".codex/skills/.system/imagegen");
+    fixture.add(".codex/skills/.system/skill-creator");
+    let who = "codex idle agent-terrace:1.1 (%40) /home/miyabi/project\n";
+    let app = api_router(
+        AppState::new(Arc::new(FixtureRunner::new(vec![output(true, who)])))
+            .with_home_dir(&fixture.home),
+    );
+    let response = app
+        .oneshot(
+            Request::get("/api/agents/%2540/skills")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response_json(response).await,
+        json!({"skills": ["bump-tag", "imagegen", "skill-creator"]})
+    );
+}
+
+#[tokio::test]
+async fn returns_no_skills_for_a_runtime_without_delivery_syntax() {
+    let fixture = SkillFixture::new();
+    fixture.add(".cursor/skills/deliver");
+    let who = "cursor idle agent-terrace:1.2 (%42) /home/miyabi/project\n";
+    let app = api_router(
+        AppState::new(Arc::new(FixtureRunner::new(vec![output(true, who)])))
+            .with_home_dir(&fixture.home),
+    );
+    let response = app
+        .oneshot(
+            Request::get("/api/agents/%2542/skills")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(response_json(response).await, json!({"skills": []}));
+}
+
+#[tokio::test]
+async fn rejects_unknown_panes_and_removes_the_global_skill_endpoint() {
+    let runner = Arc::new(FixtureRunner::new(vec![output(true, WHO)]));
+    let response = api_router(AppState::new(runner))
+        .oneshot(
+            Request::get("/api/agents/%2599/skills")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 404);
+
+    let response = api_router(AppState::new(Arc::new(FixtureRunner::new(vec![]))))
+        .oneshot(Request::get("/api/skills").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 404);
 }
 
 #[tokio::test]
@@ -364,16 +479,18 @@ async fn hides_mailbox_command_failures() {
 
 #[tokio::test]
 async fn sends_a_letter_body_only_through_stdin() {
+    let fixture = SkillFixture::new();
+    fixture.add(".claude/skills/bump-tag");
     let runner = Arc::new(FixtureRunner::new(vec![
         output(true, WHO),
         output(true, "sent -> %38: #73\n"),
     ]));
-    let app = api_router(AppState::new(runner.clone()));
+    let app = api_router(AppState::new(runner.clone()).with_home_dir(&fixture.home));
     let response = app
         .oneshot(json_request(
             "POST",
             "/api/letters",
-            json!({"agent": "%38", "skill": "deliver", "body": "  secret body  "}),
+            json!({"agent": "%38", "skill": "bump-tag", "body": "  secret body  "}),
         ))
         .await
         .unwrap();
@@ -393,7 +510,7 @@ async fn sends_a_letter_body_only_through_stdin() {
                 "--from".into(),
                 "mobile".into(),
                 "--skill".into(),
-                "deliver".into(),
+                "bump-tag".into(),
             ],
             stdin: Some("  secret body  ".into()),
             env_remove: vec!["TMUX_PANE"],
@@ -436,8 +553,9 @@ async fn rejects_invalid_letter_inputs_before_delivery() {
         json!({"agent": "%38", "skill": null, "body": long_utf8_body}),
     ];
     for request in cases {
+        let fixture = SkillFixture::new();
         let runner = Arc::new(FixtureRunner::new(vec![output(true, WHO)]));
-        let response = api_router(AppState::new(runner.clone()))
+        let response = api_router(AppState::new(runner.clone()).with_home_dir(&fixture.home))
             .oneshot(json_request("POST", "/api/letters", request))
             .await
             .unwrap();

@@ -46,8 +46,8 @@ export async function fetchScreen(paneId, fetcher = fetch) {
   return getJson(`/api/agents/${encodeURIComponent(paneId)}/screen`, fetcher);
 }
 
-export async function fetchSkills(fetcher = fetch) {
-  const body = await getJson("/api/skills", fetcher);
+export async function fetchSkills(paneId, fetcher = fetch) {
+  const body = await getJson(`/api/agents/${encodeURIComponent(paneId)}/skills`, fetcher);
   return body.skills;
 }
 

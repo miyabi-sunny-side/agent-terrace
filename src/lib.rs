@@ -1,4 +1,13 @@
-use std::{future::Future, io::Write, pin::Pin, process::Stdio, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    env, fs,
+    future::Future,
+    io::{self, Write},
+    path::{Path as FilePath, PathBuf},
+    pin::Pin,
+    process::Stdio,
+    sync::Arc,
+};
 
 use axum::{
     extract::{Path, Query, State},
@@ -77,11 +86,20 @@ impl CommandRunner for ProcessRunner {
 #[derive(Clone)]
 pub struct AppState {
     runner: Arc<dyn CommandRunner>,
+    home_dir: Option<PathBuf>,
 }
 
 impl AppState {
     pub fn new(runner: Arc<dyn CommandRunner>) -> Self {
-        Self { runner }
+        Self {
+            runner,
+            home_dir: env::var_os("HOME").map(PathBuf::from),
+        }
+    }
+
+    pub fn with_home_dir(mut self, home_dir: impl Into<PathBuf>) -> Self {
+        self.home_dir = Some(home_dir.into());
+        self
     }
 }
 
@@ -117,6 +135,8 @@ enum ApiError {
     LetterHistoryUnavailable,
     #[error("letter delivery failed")]
     LetterDeliveryFailed,
+    #[error("skill list is unavailable")]
+    SkillsUnavailable,
     #[error("invalid letter request")]
     InvalidLetter,
 }
@@ -137,6 +157,7 @@ impl IntoResponse for ApiError {
                 (StatusCode::BAD_GATEWAY, "letter_history_unavailable")
             }
             Self::LetterDeliveryFailed => (StatusCode::BAD_GATEWAY, "letter_delivery_failed"),
+            Self::SkillsUnavailable => (StatusCode::BAD_GATEWAY, "skills_unavailable"),
             Self::InvalidLetter => (StatusCode::BAD_REQUEST, "invalid_letter"),
         };
         let message = self.to_string();
@@ -148,21 +169,76 @@ pub fn api_router(state: AppState) -> Router {
     Router::new()
         .route("/api/agents", get(list_agents))
         .route("/api/agents/{pane}/screen", get(capture_screen))
-        .route("/api/skills", get(list_skills))
+        .route("/api/agents/{pane}/skills", get(list_skills))
         .route("/api/letters", get(list_letters).post(send_letter))
         .with_state(state)
 }
 
-const SKILLS: [&str; 2] = ["deliver", "commit"];
 const MAX_BODY_BYTES: usize = 16_384;
 
 #[derive(Debug, Serialize)]
 struct SkillsResponse {
-    skills: [&'static str; 2],
+    skills: Vec<String>,
 }
 
-async fn list_skills() -> Json<SkillsResponse> {
-    Json(SkillsResponse { skills: SKILLS })
+async fn list_skills(
+    State(state): State<AppState>,
+    Path(pane): Path<String>,
+) -> Result<Json<SkillsResponse>, ApiError> {
+    let agents = load_agents(&state).await?;
+    let agent = agents
+        .iter()
+        .find(|agent| agent.pane_id == pane)
+        .ok_or(ApiError::UnknownAgent)?;
+    let skills = load_installed_skills(&state, &agent.name).await?;
+    Ok(Json(SkillsResponse { skills }))
+}
+
+async fn load_installed_skills(state: &AppState, runtime: &str) -> Result<Vec<String>, ApiError> {
+    if !matches!(runtime, "claude" | "codex") {
+        return Ok(Vec::new());
+    }
+    let home_dir = state.home_dir.clone().ok_or(ApiError::SkillsUnavailable)?;
+    let runtime = runtime.to_owned();
+    tokio::task::spawn_blocking(move || installed_skills(&home_dir, &runtime))
+        .await
+        .map_err(|_| ApiError::SkillsUnavailable)?
+        .map_err(|_| ApiError::SkillsUnavailable)
+}
+
+fn installed_skills(home_dir: &FilePath, runtime: &str) -> io::Result<Vec<String>> {
+    let roots = match runtime {
+        "claude" => vec![home_dir.join(".claude/skills")],
+        "codex" => vec![
+            home_dir.join(".agents/skills"),
+            home_dir.join(".codex/skills"),
+            home_dir.join(".codex/skills/.system"),
+        ],
+        _ => return Ok(Vec::new()),
+    };
+    let mut skills = BTreeSet::new();
+    for root in roots {
+        collect_skill_names(&root, &mut skills)?;
+    }
+    Ok(skills.into_iter().collect())
+}
+
+fn collect_skill_names(root: &FilePath, skills: &mut BTreeSet<String>) -> io::Result<()> {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if is_safe_token(&name) && entry.path().join("SKILL.md").is_file() {
+            skills.insert(name);
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -283,17 +359,26 @@ async fn send_letter(
     {
         return Err(ApiError::InvalidLetter);
     }
-    if let Some(skill) = request.skill.as_deref() {
-        if !is_safe_token(skill) || !SKILLS.contains(&skill) {
-            return Err(ApiError::InvalidLetter);
-        }
+    if request
+        .skill
+        .as_deref()
+        .is_some_and(|skill| !is_safe_token(skill))
+    {
+        return Err(ApiError::InvalidLetter);
     }
 
     let agents = load_agents(&state)
         .await
         .map_err(|_| ApiError::LetterDeliveryFailed)?;
-    if !agents.iter().any(|agent| agent.pane_id == request.agent) {
-        return Err(ApiError::UnknownAgent);
+    let agent = agents
+        .iter()
+        .find(|agent| agent.pane_id == request.agent)
+        .ok_or(ApiError::UnknownAgent)?;
+    if let Some(skill) = request.skill.as_deref() {
+        let installed = load_installed_skills(&state, &agent.name).await?;
+        if !installed.iter().any(|installed| installed == skill) {
+            return Err(ApiError::InvalidLetter);
+        }
     }
 
     let mut args = vec![
@@ -324,9 +409,10 @@ async fn send_letter(
 
 fn is_safe_token(value: &str) -> bool {
     !value.is_empty()
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        && value.len() <= 64
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b':' | b'-' | b'_')
+        })
 }
 
 fn parse_delivery_stdout(

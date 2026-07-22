@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ApiError, fetchAgents, fetchLetters, fetchScreen, sendLetter } from "./api.js";
+import {
+  ApiError,
+  fetchAgents,
+  fetchLetters,
+  fetchScreen,
+  fetchSkills,
+  sendLetter,
+} from "./api.js";
 
 describe("API client", () => {
   it("encodes the pane as one path segment", async () => {
@@ -26,6 +33,18 @@ describe("API client", () => {
     await expect(fetchAgents(fetcher)).rejects.toEqual(
       new ApiError("registry down", "registry_unavailable", 502),
     );
+  });
+
+  it("requests skills for one encoded pane", async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ skills: ["bump-tag", "deliver"] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(fetchSkills("%38", fetcher)).resolves.toEqual(["bump-tag", "deliver"]);
+    expect(fetcher).toHaveBeenCalledWith("/api/agents/%2538/skills", expect.any(Object));
   });
 
   it("requests mailbox deltas with explicit bounds", async () => {

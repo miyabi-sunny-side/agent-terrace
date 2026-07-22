@@ -104,7 +104,7 @@
   }
 
   onMount(() => {
-    fetchSkills()
+    fetchSkills(agent.pane_id)
       .then((values) => {
         skills = values;
         skillError = "";
