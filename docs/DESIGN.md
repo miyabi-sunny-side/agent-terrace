@@ -24,10 +24,11 @@ colors:
 
 ## Overview
 
-agent-terrace follows the Sumi design system. Its interface is a quiet lookout:
-the warm persimmon accent marks the selected agent and primary navigation,
-recalling late sunlight on a terrace without decorating the terminal content.
-The secondary teal has one role only: a registered agent that is idle and ready.
+agent-terrace follows the Sumi design system. Its compact interface keeps the
+agent registry and terminal content ahead of application branding. The warm
+persimmon accent marks the selected agent and primary navigation without
+decorating the terminal content. The secondary teal has one role only: a
+registered agent that is idle and ready.
 
 Sumi is the default dark theme. Washi follows the operating-system light-theme
 preference and prioritizes e-paper contrast. The app has no theme toggle.
@@ -43,9 +44,11 @@ preference and prioritizes e-paper contrast. The app has no theme toggle.
 
 ## Domain components
 
-- **Agent row:** Name, state, tmux location, and abbreviated working directory.
-  The complete path remains available as a title. The selected row has a 3px
-  accent edge; status always includes text and a small square marker.
+- **Agent row:** A compact two-line summary led by the tmux location and state.
+  Runtime name, pane ID, and abbreviated working directory form the secondary
+  line, preserving the relationship between a session and its agent. The
+  complete path remains available as a title. The selected row has a 3px accent
+  edge; status always includes text and a small square marker.
 - **Detail tabs:** Screen and Letters are peer views under the selected agent.
   The active tab is reflected in the URL hash. Screen polling stops while
   Letters is active, and Letters polling stops when its view is unmounted.
@@ -66,8 +69,10 @@ preference and prioritizes e-paper contrast. The app has no theme toggle.
   not a command prefix in the textarea. Byte count, disabled sending state,
   delivery result, and errors remain close to the submit action; a failed
   delivery never clears the body.
-- **Lookout header:** A compact sticky bar with the terrace wordmark and a live
-  registry count. It contains no decorative iconography.
+- **Application shell:** There is no global wordmark, registry heading, section
+  numbering, or manual refresh control. The registry begins directly with the
+  agent rows, while the selected-agent header uses one compact line for the
+  back control, runtime name, pane ID, and refresh status.
 
 ## Constraints
 

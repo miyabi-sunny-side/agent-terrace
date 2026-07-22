@@ -140,33 +140,8 @@
 </svelte:head>
 
 <div class="app-shell" class:detail-open={selectedAgent}>
-  <header class="lookout-header">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <div>
-        <span class="eyebrow">SUNNY-SIDE LOOKOUT</span>
-        <h1>agent terrace</h1>
-      </div>
-    </div>
-    <span class="registry-count" aria-label={`${agents.length} agents registered`}>
-      {agents.length}<span> agents</span>
-    </span>
-  </header>
-
   <main class="workspace">
     <aside class="agent-pane" aria-label="agent 一覧">
-      <div class="pane-heading">
-        <div>
-          <span class="section-index">01</span>
-          <h2>Registry</h2>
-        </div>
-        <button class="refresh-button" onclick={refreshAgents} aria-label="agent 一覧を更新">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" />
-          </svg>
-        </button>
-      </div>
-
       {#if registryLoading}
         <div class="state-message"><span class="loader"></span>registry を確認中</div>
       {:else if registryError}
@@ -186,11 +161,14 @@
               <span class:idle={agent.state === "idle"} class:busy={agent.state === "busy"} class="state-mark"></span>
               <span class="agent-copy">
                 <span class="agent-title">
-                  <strong>{agent.name}</strong>
+                  <strong title={agent.location}>{agent.location}</strong>
                   <span class:idle={agent.state === "idle"} class:busy={agent.state === "busy"} class="state-label">{agent.state}</span>
                 </span>
-                <span class="agent-location">{agent.location} · {agent.pane_id}</span>
-                <span class="agent-cwd" title={agent.cwd}>{agent.cwd}</span>
+                <span class="agent-meta">
+                  <span class="agent-runtime">{agent.name}</span>
+                  <span>{agent.pane_id}</span>
+                  <span class="agent-cwd" title={agent.cwd}>{agent.cwd}</span>
+                </span>
               </span>
               <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
             </button>
@@ -206,7 +184,6 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
           </button>
           <div class="screen-title">
-            <span class="section-index">02 / {activeView === "letters" ? "LETTER SHELF" : "READ ONLY"}</span>
             <h2>{selectedAgent.name}<span>{selectedAgent.pane_id}</span></h2>
           </div>
           <div class="capture-meta">
@@ -268,11 +245,7 @@
         {/key}
       {:else}
         <div class="unselected">
-          <span class="section-index">02 / LOOKOUT</span>
-          <div class="terrace-lines" aria-hidden="true"><i></i><i></i><i></i></div>
-          <h2>外から、静かに眺める。</h2>
-          <p>agent を選ぶと、tmux pane の現在の景色を読み取り専用で表示します。</p>
-          <span class="read-only-note">capture-pane only · no attach · no input</span>
+          <span>agent を選択</span>
         </div>
       {/if}
     </section>
